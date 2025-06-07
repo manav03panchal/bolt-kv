@@ -1,11 +1,11 @@
-use bolt_kv::{process_connection, run_server, Db};
+use bolt_kv::{Db, process_connection, run_server};
+use dashmap::DashMap;
+use std::sync::Arc;
 use tempfile::NamedTempFile;
+use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
-use std::sync::Arc;
-use dashmap::DashMap;
-use tokio::fs::File;
 
 #[tokio::test]
 async fn test_persistence() {
@@ -130,10 +130,10 @@ async fn test_graceful_shutdown() {
     // Reduced sleep time from 100ms to 5ms for faster test
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     shutdown_tx.send(()).unwrap();
-    
+
     // Add a brief delay to let the shutdown propagate
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    
+
     let client_result = TcpStream::connect(addr).await;
     assert!(
         client_result.is_err(),
@@ -232,7 +232,7 @@ async fn test_persistence_with_delete() {
     client.read_exact(&mut response_buf).await.unwrap();
     let response = std::str::from_utf8(&response_buf).unwrap();
     assert_eq!(response, "cool\n");
-    
+
     // Properly shut down the server
     shutdown_tx.send(()).unwrap();
     server_task.await.unwrap().unwrap();
