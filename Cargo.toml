@@ -1,0 +1,11 @@
+[package]
+name = "bolt-kv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+test-case = "3.3.1"
+tokio = { version = "*", features = ["full"] }
+dashmap = "*"
+anyhow = "*"
+tempfile = "3.20.0"
