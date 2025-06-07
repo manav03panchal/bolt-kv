@@ -9,6 +9,9 @@ use tokio::sync::broadcast;
 
 pub type Db = Arc<DashMap<String, String>>;
 
+#[cfg(test)]
+mod tests;
+
 pub async fn run_server(
     listener: TcpListener,
     shutdown_tx: broadcast::Sender<()>,
