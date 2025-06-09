@@ -6,23 +6,28 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
+use tracing::{error, info};
 
 pub type Db = Arc<DashMap<String, String>>;
 
+// This functions takes a listener, a shutdown transmitter and an aof path
 pub async fn run_server(
     listener: TcpListener,
     shutdown_tx: broadcast::Sender<()>,
     aof_path: Option<PathBuf>,
 ) -> Result<()> {
+    // make an instance of Db and subscribe to the shutdown transmitter.
     let db: Db = Arc::new(DashMap::new());
     let mut shutdown_rx = shutdown_tx.subscribe();
 
+    // if  aof_path found, replay all actions to come to latest state
+    // TODO: make this a function? maybe restore_db()?
     let aof_file = if let Some(path) = &aof_path {
         if path.exists() {
             let file = OpenOptions::new().read(true).open(path).await?;
             let mut reader = BufReader::new(file);
             let mut line = String::new();
-            println!("Restoring database from AOF...");
+            info!("Restoring database from AOF...");
             while reader.read_line(&mut line).await? > 0 {
                 let parts: Vec<&str> = line.trim().splitn(3, ' ').collect();
                 let command = parts.first().copied().unwrap_or("");
@@ -41,7 +46,7 @@ pub async fn run_server(
                 }
                 line.clear();
             }
-            println!("Database restored.");
+            info!("Database restored.");
         }
         Some(
             OpenOptions::new()
@@ -53,10 +58,13 @@ pub async fn run_server(
     } else {
         None
     };
+
+    // create thread-safe shared reference to a file that can be safely accessed from multiple async tasks
     let aof_mutex = Arc::new(tokio::sync::Mutex::new(aof_file));
 
-    println!("BoltKV server started.");
+    info!("BoltKV server started.");
 
+    // run loop till shutdown signal not received.
     loop {
         tokio::select! {
             res = listener.accept() => {
@@ -70,7 +78,7 @@ pub async fn run_server(
                 });
             }
             _ = shutdown_rx.recv() => {
-                println!("Shutdown signal received. Closing server.");
+                info!("Shutdown signal received. Closing server.");
                 break;
             }
         }
@@ -108,10 +116,10 @@ pub async fn process_connection(
                             "SET" | "DEL" => {
                                 if let Some(file) = &mut *aof.lock().await {
                                     if file.write_all(line.as_bytes()).await.is_err() {
-                                        eprintln!("failed to write to AOF");
+                                        error!("failed to write to AOF");
                                     }
                                     if file.flush().await.is_err() {
-                                        eprintln!("failed to flush AOF");
+                                        error!("failed to flush AOF");
                                     }
                                 }
                                 if *command == "SET" {
@@ -149,13 +157,13 @@ pub async fn process_connection(
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error reading from socket: {}", e);
+                        error!(cause = %e , "Error reading from socket");
                         return;
                     }
                 }
             }
             _ = shutdown_rx.recv() => {
-                println!("Connection closing due to server shutdown.");
+                info!("Connection closing due to server shutdown.");
                 return;
             }
         }
