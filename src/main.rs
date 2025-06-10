@@ -18,6 +18,9 @@ struct Cli {
     /// If not provided, persistence is disabled.
     #[arg(long)]
     aof_path: Option<PathBuf>,
+
+    #[arg(long)]
+    require_pass: Option<String>,
 }
 
 #[tokio::main]
@@ -31,6 +34,7 @@ async fn main() -> Result<()> {
     // Use the parsed arguments.
     let addr = &cli.addr;
     let aof_path = cli.aof_path;
+    let password = cli.require_pass; // Get the password
 
     info!("Starting BoltKV server...");
 
@@ -51,7 +55,7 @@ async fn main() -> Result<()> {
         warn!("Persistence is disabled. Data will be lost on shutdown.");
     }
 
-    run_server(listener, shutdown_tx, aof_path).await?;
+    run_server(listener, shutdown_tx, aof_path, password).await?;
 
     Ok(())
 }

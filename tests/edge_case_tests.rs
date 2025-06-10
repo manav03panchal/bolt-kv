@@ -15,7 +15,7 @@ async fn start_test_server(
 
     let server_shutdown_tx = shutdown_tx.clone();
     let server_handle = tokio::spawn(async move {
-        run_server(listener, server_shutdown_tx, aof_path)
+        run_server(listener, server_shutdown_tx, aof_path, None)
             .await
             .unwrap();
     });

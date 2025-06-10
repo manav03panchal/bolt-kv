@@ -15,6 +15,7 @@ pub async fn run_server(
     listener: TcpListener,
     shutdown_tx: broadcast::Sender<()>,
     aof_path: Option<PathBuf>,
+    password: Option<String>, // New argument
 ) -> Result<()> {
     // make an instance of Db and subscribe to the shutdown transmitter.
     let db: Db = Arc::new(DashMap::new());
@@ -62,6 +63,9 @@ pub async fn run_server(
     // create thread-safe shared reference to a file that can be safely accessed from multiple async tasks
     let aof_mutex = Arc::new(tokio::sync::Mutex::new(aof_file));
 
+    // Wrap password in an Arc for sharing
+    let password = Arc::new(password);
+
     info!("BoltKV server started.");
 
     // run loop till shutdown signal not received.
@@ -72,9 +76,10 @@ pub async fn run_server(
                 let db_clone = db.clone();
                 let task_shutdown_rx = shutdown_tx.subscribe();
                 let aof_clone = aof_mutex.clone();
+                let password_clone = password.clone(); // Clone the Arc handle
 
                 tokio::spawn(async move {
-                    process_connection(socket, db_clone, task_shutdown_rx, aof_clone).await;
+                    process_connection(socket, db_clone, task_shutdown_rx, aof_clone, password_clone).await;
                 });
             }
             _ = shutdown_rx.recv() => {
@@ -91,8 +96,12 @@ pub async fn process_connection(
     db: Db,
     mut shutdown_rx: broadcast::Receiver<()>,
     aof: Arc<tokio::sync::Mutex<Option<File>>>,
+    password: Arc<Option<String>>, // New argument
 ) {
     let mut reader = BufReader::new(socket);
+    // The bouncer's state for this connection.
+    // If no password is required server-wide, they are authenticated by default.
+    let mut is_authenticated = password.is_none();
 
     macro_rules! write_response {
         ($msg:expr) => {
@@ -110,9 +119,30 @@ pub async fn process_connection(
                     Ok(0) => return,
                     Ok(_) => {
                         let parts: Vec<&str> = line.trim().splitn(3, ' ').collect();
-                        let command = parts.first().unwrap_or(&"");
+                        let command = parts.first().copied().unwrap_or("");
 
-                        match *command {
+                        // If the command is AUTH, handle it specially.
+                        if command == "AUTH" {
+                            if let Some(required_pass) = password.as_ref() {
+                                if let Some(submitted_pass) = parts.get(1) {
+                                    if submitted_pass == required_pass {
+                                        is_authenticated = true;
+                                        write_response!(b"OK\n");
+                                    } else {
+                                        write_response!(b"ERR invalid password\n");
+                                    }
+                                }
+                            }
+                            continue; // Go to next loop iteration
+                        }
+
+                        // The bouncer checks their hand stamp.
+                        if !is_authenticated {
+                            write_response!(b"ERR NOAUTH Authentication required.\n");
+                            continue; // Go to next loop iteration
+                        }
+
+                        match command {
                             "SET" | "DEL" => {
                                 if let Some(file) = &mut *aof.lock().await {
                                     if file.write_all(line.as_bytes()).await.is_err() {
@@ -122,7 +152,7 @@ pub async fn process_connection(
                                         error!("failed to flush AOF");
                                     }
                                 }
-                                if *command == "SET" {
+                                if command == "SET" {
                                     if let (Some(key), Some(value)) = (parts.get(1), parts.get(2)) {
                                         db.insert(key.to_string(), value.to_string());
                                         write_response!(b"OK\n");

@@ -12,7 +12,7 @@ async fn start_test_server() -> (std::net::SocketAddr, JoinHandle<()>, broadcast
 
     let server_shutdown_tx = shutdown_tx.clone();
     let server_handle = tokio::spawn(async move {
-        run_server(listener, server_shutdown_tx, None)
+        run_server(listener, server_shutdown_tx, None, None)
             .await
             .unwrap();
     });

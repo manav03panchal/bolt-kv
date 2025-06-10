@@ -21,6 +21,7 @@ async fn test_persistence() {
         listener,
         shutdown_tx.clone(),
         Some(aof_path.clone()),
+        None,
     ));
 
     // Only a minimal sleep to ensure server is ready
@@ -43,7 +44,12 @@ async fn test_persistence() {
     let addr = listener.local_addr().unwrap();
     let (shutdown_tx, _) = broadcast::channel(1);
 
-    let server_task_2 = tokio::spawn(run_server(listener, shutdown_tx.clone(), Some(aof_path)));
+    let server_task_2 = tokio::spawn(run_server(
+        listener,
+        shutdown_tx.clone(),
+        Some(aof_path),
+        None,
+    ));
     // Only a minimal sleep to ensure server is ready
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
@@ -126,6 +132,7 @@ async fn test_graceful_shutdown() {
         listener,
         shutdown_tx.clone(),
         None, // No AOF for this test
+        None,
     ));
     // Reduced sleep time from 100ms to 5ms for faster test
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -212,7 +219,12 @@ async fn test_persistence_with_delete() {
     let addr = listener.local_addr().unwrap();
     let (shutdown_tx, _) = broadcast::channel(1);
 
-    let server_task = tokio::spawn(run_server(listener, shutdown_tx.clone(), Some(aof_path)));
+    let server_task = tokio::spawn(run_server(
+        listener,
+        shutdown_tx.clone(),
+        Some(aof_path),
+        None,
+    ));
     // Reduced sleep time for faster tests
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
@@ -250,7 +262,7 @@ async fn setup_test_server() -> (BufReader<TcpStream>, Db) {
     tokio::spawn(async move {
         let (socket, _) = listener.accept().await.unwrap();
         let shutdown_rx = shutdown_tx.subscribe();
-        process_connection(socket, db_clone, shutdown_rx, aof_mutex).await;
+        process_connection(socket, db_clone, shutdown_rx, aof_mutex, Arc::new(None)).await;
     });
 
     // Small delay to avoid race condition, but keep it minimal
